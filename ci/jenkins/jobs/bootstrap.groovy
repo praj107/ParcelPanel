@@ -11,6 +11,7 @@ import org.jenkinsci.plugins.workflow.job.WorkflowJob
 
 def repoUrl = System.getenv('PARCELPANEL_REPO_URL') ?: 'https://github.com/praj107/ParcelPanel.git'
 def branchSpec = '*/main'
+def gitCredentialsId = System.getenv('PARCELPANEL_GIT_CREDENTIAL_ID') ?: 'parcelpanel-git-http'
 
 def jobDefinitions = [
     [
@@ -46,7 +47,7 @@ def jobDefinitions = [
 
 def buildScm = {
     new GitSCM(
-        [new UserRemoteConfig(repoUrl, null, null, null)],
+        [new UserRemoteConfig(repoUrl, null, null, gitCredentialsId)],
         [new BranchSpec(branchSpec)],
         false,
         [],
@@ -92,4 +93,3 @@ jobDefinitions.each { definition ->
 }
 
 println 'bootstrap-complete'
-
