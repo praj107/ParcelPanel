@@ -1,1 +1,14 @@
 .env
+.gradle/
+.gradle-home/
+.idea/
+local.properties
+*.iml
+/build/
+**/build/
+captures/
+.DS_Store
+/app/schemas/
+releases/
+.gradle-home/
+**/.tmp/
