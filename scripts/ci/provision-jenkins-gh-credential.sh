@@ -44,10 +44,10 @@ def existing = provider.getCredentials().find { it.id == credentialId }
 
 if (existing == null) {
     store.addCredentials(domain, replacement)
-    println "created:${credentialId}"
+    println "created:" + credentialId
 } else {
     store.updateCredentials(domain, existing, replacement)
-    println "updated:${credentialId}"
+    println "updated:" + credentialId
 }
 
 Jenkins.instance.save()
