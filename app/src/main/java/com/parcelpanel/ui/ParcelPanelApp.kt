@@ -89,6 +89,7 @@ import com.parcelpanel.model.NormalizedStatus
 import com.parcelpanel.model.ParcelDetail
 import com.parcelpanel.model.ParcelSummary
 import com.parcelpanel.model.SyncEntry
+import com.parcelpanel.tracking.TrackingSamples
 import com.parcelpanel.ui.theme.AmberWarning
 import com.parcelpanel.ui.theme.BorderSoft
 import com.parcelpanel.ui.theme.CloudText
@@ -350,6 +351,44 @@ private fun AddScreen(
                 title = "Simple by default",
                 subtitle = "Save the tracking number, keep the history local, and let ParcelPanel suggest the most likely Australian carrier."
             )
+        }
+        item {
+            OutlinedCard(
+                colors = CardDefaults.outlinedCardColors(containerColor = NightSurfaceAlt),
+                border = BorderStroke(1.dp, BorderSoft),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = "Try format samples",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = "These example IDs are for carrier detection and UI smoke-testing. They are not guaranteed to resolve as live consignments.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MistText,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        TrackingSamples.formatSamples.forEach { sample ->
+                            FilterChip(
+                                selected = trackingNumber == sample.trackingNumber,
+                                onClick = {
+                                    trackingNumber = sample.trackingNumber
+                                    if (label.isBlank()) {
+                                        label = "${sample.label} sample"
+                                    }
+                                },
+                                label = { Text(sample.label) },
+                            )
+                        }
+                    }
+                }
+            }
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

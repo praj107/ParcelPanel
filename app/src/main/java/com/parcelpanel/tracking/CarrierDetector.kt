@@ -38,6 +38,9 @@ object CarrierDetector {
                     add(match("fedex", 62, "FedEx also uses long numeric identifiers"))
                     add(match("teamge", 48, "Domestic freight carriers sometimes use long numeric IDs"))
                 }
+                Regex("^TGE[0-9]{8,}$").matches(candidate) -> {
+                    add(match("teamge", 92, "Explicit Team Global Express prefix"))
+                }
                 Regex("^[A-Z]{3}[0-9]{8,}$").matches(candidate) -> {
                     add(match("directfreight", 64, "Consignment code resembles domestic road-freight formatting"))
                     add(match("teamge", 50, "Alphanumeric freight format"))
@@ -46,10 +49,6 @@ object CarrierDetector {
 
             if (matchesNoneFor("auspost") && candidate.endsWith("AU") && candidate.length in 11..16) {
                 add(match("auspost", 62, "Australian postal suffix"))
-            }
-
-            if (matchesNoneFor("teamge") && candidate.startsWith("TGE")) {
-                add(match("teamge", 85, "Explicit Team Global Express prefix"))
             }
         }
 
@@ -80,4 +79,3 @@ object CarrierDetector {
         )
     }
 }
-

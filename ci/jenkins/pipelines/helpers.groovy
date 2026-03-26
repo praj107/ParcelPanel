@@ -24,13 +24,19 @@ def resolveSdkRoot(script, String overrideValue = '') {
 def bootstrapAndroid(script, String sdkRootOverride = '', boolean requireGh = true) {
     resolveSdkRoot(script, sdkRootOverride)
     script.sh 'chmod +x gradlew scripts/build-release.sh scripts/ci/*.sh'
+    def javaHome = script.sh(returnStdout: true, script: 'scripts/ci/resolve-java-home.sh').trim()
+    script.env.JAVA_HOME = javaHome
+    script.env.PATH = "${javaHome}/bin:${script.env.PATH}"
+    script.env.ANDROID_HOME = script.env.EFFECTIVE_ANDROID_SDK_ROOT
+    script.env.ANDROID_SDK_ROOT = script.env.EFFECTIVE_ANDROID_SDK_ROOT
 
     def ghCheck = requireGh ? 'gh --version' : 'true'
     script.sh """
         set -e
-        export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+        export JAVA_HOME="${javaHome}"
         test -d "\$EFFECTIVE_ANDROID_SDK_ROOT/platforms/android-35"
         test -x "\$EFFECTIVE_ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
+        javac -version
         java -version
         ${ghCheck}
     """
@@ -82,4 +88,3 @@ def publishReports(script, boolean includeReleaseArtifacts = false, boolean incl
 }
 
 return this
-

@@ -26,5 +26,12 @@ class CarrierDetectorTest {
 
         assertThat(match.slug).isEqualTo("couriersplease")
     }
-}
 
+    @Test
+    fun explicitTeamGlobalExpressPrefixBeatsGenericFreightPattern() {
+        val match = CarrierDetector.detect("TGE123456789012").first()
+
+        assertThat(match.slug).isEqualTo("teamge")
+        assertThat(match.confidence).isAtLeast(90)
+    }
+}

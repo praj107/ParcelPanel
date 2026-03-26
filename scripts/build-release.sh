@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
+if [[ -z "${JAVA_HOME:-}" || ! -x "${JAVA_HOME}/bin/javac" ]]; then
+  export JAVA_HOME="$(./scripts/ci/resolve-java-home.sh)"
+fi
 export ANDROID_HOME="${ANDROID_HOME:-/home/pranav/Android/Sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
 

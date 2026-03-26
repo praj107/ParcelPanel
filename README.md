@@ -32,3 +32,14 @@ Local Jenkins jobs created during execution:
 - `ParcelPanel-Release`
 
 Repo assets for Jenkins live under `ci/jenkins/` and `scripts/ci/`.
+
+For local Jenkins release publishing on this machine:
+
+```bash
+export JENKINS_USERNAME=...
+export JENKINS_TOKEN=...
+export GHO_TOKEN=...
+scripts/ci/provision-jenkins-gh-credential.sh
+```
+
+Then run `ParcelPanel-Release` with `RELEASE_TYPE=major` to move the repo from `0.1.0` to `1.0.0`, build release artifacts, push the version commit and tag, and publish the GitHub release draft.

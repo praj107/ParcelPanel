@@ -103,7 +103,11 @@ pipeline {
                 withCredentials([
                     string(credentialsId: 'parcelpanel-gh-token', variable: 'GH_TOKEN')
                 ]) {
-                    sh 'scripts/ci/publish-github-release.sh'
+                    sh '''
+                        export RELEASE_BRANCH="${BRANCH_NAME:-main}"
+                        scripts/ci/push-release-refs.sh
+                        scripts/ci/publish-github-release.sh
+                    '''
                 }
             }
         }
@@ -120,4 +124,3 @@ pipeline {
         }
     }
 }
-
