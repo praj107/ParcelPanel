@@ -24,6 +24,9 @@ fi
 
 if gh release view "$VERSION_TAG" >/dev/null 2>&1; then
   gh release upload "$VERSION_TAG" "${release_files[@]}" --clobber
+  if [[ "$(gh release view "$VERSION_TAG" --json isDraft --jq '.isDraft')" == "true" ]]; then
+    gh release edit "$VERSION_TAG" --draft=false --title "$VERSION_TAG"
+  fi
 else
-  gh release create "$VERSION_TAG" "${release_files[@]}" --draft --title "$VERSION_TAG" --notes "ParcelPanel ${VERSION_TAG}"
+  gh release create "$VERSION_TAG" "${release_files[@]}" --title "$VERSION_TAG" --notes "ParcelPanel ${VERSION_TAG}"
 fi
