@@ -40,6 +40,7 @@ def jobDefinitions = [
             [type: 'choice', name: 'RELEASE_TYPE', choices: ['patch', 'minor', 'major', 'chore'], description: 'Version bump policy before release packaging.'],
             [type: 'boolean', name: 'RUN_LINT', defaultValue: true, description: 'Run Android lint in release validation.'],
             [type: 'boolean', name: 'RUN_CONNECTED_TESTS', defaultValue: false, description: 'Run connected Android tests when infrastructure is ready.'],
+            [type: 'boolean', name: 'FORCE_RELEASE_TAG_UPDATE', defaultValue: false, description: 'Allow force-updating an existing release tag when repairing a partial release.'],
             [type: 'string', name: 'ANDROID_SDK_ROOT_OVERRIDE', defaultValue: '', description: 'Optional SDK path override.']
         ]
     ]

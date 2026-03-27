@@ -25,7 +25,10 @@ mkdir -p "$TARGET_DIR"
 
 find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -exec cp {} "$TARGET_DIR/" \;
 find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' -exec cp {} "$TARGET_DIR/" \;
-find app/build/outputs/mapping/release -maxdepth 2 -type f -exec cp --parents {} "$TARGET_DIR/" \; 2>/dev/null || true
+find app/build/outputs/mapping/release -type f -print0 2>/dev/null | while IFS= read -r -d '' mapping_file; do
+  relative_name="${mapping_file#app/build/outputs/mapping/release/}"
+  cp "$mapping_file" "${TARGET_DIR}/${relative_name//\//-}"
+done
 
 if command -v sha256sum >/dev/null 2>&1; then
   checksum_file="$TARGET_DIR/SHA256SUMS.txt"

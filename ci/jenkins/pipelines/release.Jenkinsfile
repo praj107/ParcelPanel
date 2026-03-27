@@ -27,6 +27,11 @@ pipeline {
             defaultValue: false,
             description: 'Run connected tests if an emulator or device is available.'
         )
+        booleanParam(
+            name: 'FORCE_RELEASE_TAG_UPDATE',
+            defaultValue: false,
+            description: 'Allow force-updating an existing release tag when repairing a partial release.'
+        )
         string(
             name: 'ANDROID_SDK_ROOT_OVERRIDE',
             defaultValue: '',
@@ -105,6 +110,7 @@ pipeline {
                 ]) {
                     sh '''
                         export RELEASE_BRANCH="${BRANCH_NAME:-main}"
+                        export FORCE_RELEASE_TAG_UPDATE="${FORCE_RELEASE_TAG_UPDATE}"
                         scripts/ci/push-release-refs.sh
                         scripts/ci/publish-github-release.sh
                     '''
