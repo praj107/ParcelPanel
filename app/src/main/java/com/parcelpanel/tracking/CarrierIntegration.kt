@@ -9,7 +9,6 @@ import com.parcelpanel.model.SyncTrigger
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 object CarrierCatalog {
     val all: List<CarrierDefinition> = listOf(
@@ -466,7 +465,7 @@ private fun jsQuoted(value: String): String =
     }
 
 private fun urlEncode(value: String): String =
-    URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20")
+    URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
 class ConnectorRegistry(
     context: android.content.Context,
