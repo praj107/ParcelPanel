@@ -28,6 +28,7 @@ class MainActivity : ComponentActivity() {
                 ParcelViewModel.Factory(
                     repository = app.repository,
                     scheduler = app.refreshScheduler,
+                    otaUpdateRepository = app.otaUpdateRepository,
                 )
             }
             val viewModel: ParcelViewModel = viewModel(factory = factory)
@@ -47,4 +48,3 @@ class MainActivity : ComponentActivity() {
         currentIntentState = intent
     }
 }
-

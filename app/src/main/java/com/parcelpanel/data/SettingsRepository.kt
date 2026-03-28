@@ -2,7 +2,9 @@ package com.parcelpanel.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.parcelpanel.model.AppPreferencesModel
@@ -17,6 +19,8 @@ class SettingsRepository(
     private val context: Context,
 ) {
     private val syncIntervalKey = intPreferencesKey("sync_interval_hours")
+    private val autoCheckUpdatesKey = booleanPreferencesKey("auto_check_updates")
+    private val lastUpdateCheckAtKey = longPreferencesKey("last_update_check_at")
 
     val preferences: Flow<AppPreferencesModel> = context.dataStore.data.map { prefs ->
         val apiKeys = CarrierCatalog.all.mapNotNull { definition ->
@@ -24,7 +28,9 @@ class SettingsRepository(
         }.toMap()
         AppPreferencesModel(
             syncIntervalHours = prefs[syncIntervalKey] ?: 4,
-            apiKeys = apiKeys
+            apiKeys = apiKeys,
+            autoCheckUpdates = prefs[autoCheckUpdatesKey] ?: true,
+            lastUpdateCheckAt = prefs[lastUpdateCheckAtKey],
         )
     }
 
@@ -45,6 +51,21 @@ class SettingsRepository(
         return prefs[apiKeyKey(slug)]
     }
 
+    suspend fun setAutoCheckUpdates(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[autoCheckUpdatesKey] = enabled
+        }
+    }
+
+    suspend fun setLastUpdateCheckAt(timestamp: Long?) {
+        context.dataStore.edit { prefs ->
+            if (timestamp == null) {
+                prefs.remove(lastUpdateCheckAtKey)
+            } else {
+                prefs[lastUpdateCheckAtKey] = timestamp
+            }
+        }
+    }
+
     private fun apiKeyKey(slug: String) = stringPreferencesKey("carrier_api_key_$slug")
 }
-

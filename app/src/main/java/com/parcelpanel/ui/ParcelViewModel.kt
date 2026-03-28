@@ -14,6 +14,8 @@ import com.parcelpanel.model.SyncEntry
 import com.parcelpanel.model.SyncTrigger
 import com.parcelpanel.sync.RefreshScheduler
 import com.parcelpanel.tracking.CarrierDetector
+import com.parcelpanel.update.AppUpdateState
+import com.parcelpanel.update.OtaUpdateRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +26,7 @@ import kotlinx.coroutines.launch
 class ParcelViewModel(
     private val repository: ParcelRepository,
     private val scheduler: RefreshScheduler,
+    private val otaUpdateRepository: OtaUpdateRepository,
 ) : ViewModel() {
     val inbox: StateFlow<List<ParcelSummary>> = repository.observeInbox().stateIn(
         scope = viewModelScope,
@@ -48,6 +51,7 @@ class ParcelViewModel(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = AppPreferencesModel(),
     )
+    val appUpdateState: StateFlow<AppUpdateState> = otaUpdateRepository.state
 
     private val _pendingSharedText = MutableStateFlow<String?>(null)
     val pendingSharedText: StateFlow<String?> = _pendingSharedText.asStateFlow()
@@ -100,14 +104,32 @@ class ParcelViewModel(
         }
     }
 
+    fun checkForUpdates(manual: Boolean) {
+        viewModelScope.launch {
+            otaUpdateRepository.checkForUpdates(manual = manual)
+        }
+    }
+
+    fun updateAutoCheckUpdates(enabled: Boolean) {
+        viewModelScope.launch {
+            otaUpdateRepository.setAutoCheckUpdates(enabled)
+        }
+    }
+
+    fun downloadLatestUpdate() {
+        viewModelScope.launch {
+            otaUpdateRepository.downloadLatestUpdate()
+        }
+    }
+
     class Factory(
         private val repository: ParcelRepository,
         private val scheduler: RefreshScheduler,
+        private val otaUpdateRepository: OtaUpdateRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ParcelViewModel(repository, scheduler) as T
+            return ParcelViewModel(repository, scheduler, otaUpdateRepository) as T
         }
     }
 }
-

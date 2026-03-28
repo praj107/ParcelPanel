@@ -22,20 +22,23 @@ fi
 
 TARGET_DIR="releases/v${VERSION}"
 mkdir -p "$TARGET_DIR"
+rm -f "${TARGET_DIR:?}/"*
 
-find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -exec cp {} "$TARGET_DIR/" \;
-find app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' -exec cp {} "$TARGET_DIR/" \;
-find app/build/outputs/mapping/release -type f -print0 2>/dev/null | while IFS= read -r -d '' mapping_file; do
-  relative_name="${mapping_file#app/build/outputs/mapping/release/}"
-  cp "$mapping_file" "${TARGET_DIR}/${relative_name//\//-}"
-done
+mapfile -d '' release_apks < <(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' ! -name '*-unsigned.apk' -print0 | sort -z)
+if [[ "${#release_apks[@]}" -ne 1 ]]; then
+  echo "Expected exactly one signed release APK, found ${#release_apks[@]}" >&2
+  exit 1
+fi
+
+artifact_name="ParcelPanel-v${VERSION}.apk"
+cp "${release_apks[0]}" "${TARGET_DIR}/${artifact_name}"
 
 if command -v sha256sum >/dev/null 2>&1; then
   checksum_file="$TARGET_DIR/SHA256SUMS.txt"
-  : > "$checksum_file"
-  find "$TARGET_DIR" -maxdepth 1 -type f \( -name '*.apk' -o -name '*.aab' \) -print0 | while IFS= read -r -d '' artifact; do
-    sha256sum "$artifact" >> "$checksum_file"
-  done
+  (
+    cd "$TARGET_DIR"
+    sha256sum "$artifact_name" > "$(basename "$checksum_file")"
+  )
 fi
 
 printf 'PACKAGED_DIR=%s\n' "$TARGET_DIR"

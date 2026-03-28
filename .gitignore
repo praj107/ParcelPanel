@@ -1,8 +1,12 @@
 .env
+.secrets/
 .gradle/
 .gradle-home/
 .idea/
 local.properties
+release-signing.properties
+*.jks
+*.keystore
 *.iml
 /build/
 **/build/

@@ -2,6 +2,7 @@ package com.parcelpanel.ui
 
 import android.content.Intent
 import android.net.Uri
+import com.parcelpanel.BuildConfig
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,6 +48,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -57,6 +59,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -90,6 +93,9 @@ import com.parcelpanel.model.ParcelDetail
 import com.parcelpanel.model.ParcelSummary
 import com.parcelpanel.model.SyncEntry
 import com.parcelpanel.tracking.TrackingSamples
+import com.parcelpanel.update.ApkInstaller
+import com.parcelpanel.update.AppUpdateState
+import com.parcelpanel.update.UpdateStatus
 import com.parcelpanel.ui.theme.AmberWarning
 import com.parcelpanel.ui.theme.BorderSoft
 import com.parcelpanel.ui.theme.CloudText
@@ -99,9 +105,11 @@ import com.parcelpanel.ui.theme.MistText
 import com.parcelpanel.ui.theme.NightSurfaceAlt
 import com.parcelpanel.ui.theme.RoseError
 import com.parcelpanel.ui.theme.TealPrimary
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 private const val ROUTE_INBOX = "inbox"
@@ -124,6 +132,7 @@ fun ParcelPanelApp(
     val history by viewModel.history.collectAsStateWithLifecycle()
     val carriers by viewModel.carriers.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val appUpdateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
     val pendingSharedText by viewModel.pendingSharedText.collectAsState()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentBackStackEntry?.destination
@@ -131,6 +140,9 @@ fun ParcelPanelApp(
 
     LaunchedEffect(incomingIntent) {
         viewModel.handleIncomingIntent(incomingIntent)
+    }
+    LaunchedEffect(Unit) {
+        viewModel.checkForUpdates(manual = false)
     }
 
     val bottomNavItems = listOf(
@@ -211,7 +223,21 @@ fun ParcelPanelApp(
                 SettingsScreen(
                     carriers = carriers,
                     syncIntervalHours = settings.syncIntervalHours,
+                    updateState = appUpdateState,
                     onSyncIntervalSelected = viewModel::updateSyncInterval,
+                    onAutoCheckUpdatesChanged = viewModel::updateAutoCheckUpdates,
+                    onCheckForUpdates = { viewModel.checkForUpdates(manual = true) },
+                    onDownloadUpdate = viewModel::downloadLatestUpdate,
+                    onInstallUpdate = { apkPath ->
+                        val result = ApkInstaller.launchInstall(context, File(apkPath))
+                        scope.launch {
+                            snackbarHostState.showSnackbar(result.message)
+                        }
+                    },
+                    onOpenReleasePage = {
+                        val releasePage = appUpdateState.release?.htmlUrl ?: BuildConfig.UPDATE_RELEASES_PAGE_URL
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releasePage)))
+                    },
                 )
             }
             composable("$ROUTE_DETAIL/{itemId}") { backStackEntry ->
@@ -474,7 +500,13 @@ private fun AddScreen(
 private fun SettingsScreen(
     carriers: List<CarrierProfileEntity>,
     syncIntervalHours: Int,
+    updateState: AppUpdateState,
     onSyncIntervalSelected: (Int) -> Unit,
+    onAutoCheckUpdatesChanged: (Boolean) -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: () -> Unit,
+    onInstallUpdate: (String) -> Unit,
+    onOpenReleasePage: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -486,6 +518,16 @@ private fun SettingsScreen(
                 text = "Settings",
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.statusBarsPadding()
+            )
+        }
+        item {
+            UpdateCard(
+                state = updateState,
+                onAutoCheckUpdatesChanged = onAutoCheckUpdatesChanged,
+                onCheckForUpdates = onCheckForUpdates,
+                onDownloadUpdate = onDownloadUpdate,
+                onInstallUpdate = onInstallUpdate,
+                onOpenReleasePage = onOpenReleasePage,
             )
         }
         item {
@@ -548,6 +590,203 @@ private fun SettingsScreen(
             }
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun UpdateCard(
+    state: AppUpdateState,
+    onAutoCheckUpdatesChanged: (Boolean) -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: () -> Unit,
+    onInstallUpdate: (String) -> Unit,
+    onOpenReleasePage: () -> Unit,
+) {
+    val release = state.release
+    val actionEnabled = state.status != UpdateStatus.CHECKING && state.status != UpdateStatus.DOWNLOADING
+
+    OutlinedCard(
+        colors = CardDefaults.outlinedCardColors(containerColor = NightSurfaceAlt),
+        border = BorderStroke(1.dp, BorderSoft),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("App updates", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "Signed APKs are fetched from the public GitHub release feed, SHA-256 checked, and matched against the installed ParcelPanel signing certificate before install.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MistText,
+                    )
+                }
+                StatusPill(state = state)
+            }
+
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(20.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Current build v${state.currentVersionName}",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = buildString {
+                            append("Last checked ")
+                            append(formatTimestamp(state.lastCheckedAt))
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MistText,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Automatic update checks", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = "Checks the latest public release at launch, throttled to twice daily.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MistText,
+                            )
+                        }
+                        Switch(
+                            checked = state.autoCheckEnabled,
+                            onCheckedChange = onAutoCheckUpdatesChanged,
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = when (state.status) {
+                    UpdateStatus.IDLE -> "No release check has run in this session yet."
+                    UpdateStatus.CHECKING -> "Checking the latest GitHub release."
+                    UpdateStatus.UP_TO_DATE -> "This install is already on the latest published version."
+                    UpdateStatus.AVAILABLE -> "A newer signed ParcelPanel APK is available."
+                    UpdateStatus.DOWNLOADING -> "Downloading the signed update package."
+                    UpdateStatus.READY_TO_INSTALL -> "The downloaded APK passed checksum and signing validation."
+                    UpdateStatus.ERROR -> state.errorMessage ?: "Update validation failed."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (state.status == UpdateStatus.ERROR) RoseError else MistText,
+            )
+
+            if (state.status == UpdateStatus.DOWNLOADING) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LinearProgressIndicator(
+                        progress = { (state.downloadProgressPercent ?: 0) / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        text = state.downloadProgressPercent?.let { "Download ${it.coerceIn(0, 100)}%" } ?: "Preparing download",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MistText,
+                    )
+                }
+            }
+
+            release?.let { latest ->
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "Latest release v${latest.versionName}",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = "Published ${formatTimestamp(latest.publishedAt)} • ${formatFileSize(latest.apkAsset.sizeBytes)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MistText,
+                        )
+                        releaseNotesPreview(latest.body)?.let { notes ->
+                            Text(
+                                text = notes,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onCheckForUpdates,
+                    enabled = actionEnabled,
+                ) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (state.status == UpdateStatus.CHECKING) "Checking" else "Check now")
+                }
+                OutlinedButton(onClick = onOpenReleasePage) {
+                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Release page")
+                }
+                if (state.status == UpdateStatus.AVAILABLE) {
+                    Button(onClick = onDownloadUpdate) {
+                        Icon(Icons.Rounded.Done, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Download APK")
+                    }
+                }
+                if (state.status == UpdateStatus.READY_TO_INSTALL && state.downloadedApkPath != null) {
+                    Button(onClick = { onInstallUpdate(state.downloadedApkPath) }) {
+                        Icon(Icons.Rounded.Done, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Install APK")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusPill(state: AppUpdateState) {
+    val (label, tint) = when (state.status) {
+        UpdateStatus.IDLE -> "Idle" to Color(0xFF7E8A9A)
+        UpdateStatus.CHECKING -> "Checking" to TealPrimary
+        UpdateStatus.UP_TO_DATE -> "Current" to MintSuccess
+        UpdateStatus.AVAILABLE -> "Update" to AmberWarning
+        UpdateStatus.DOWNLOADING -> "Downloading" to TealPrimary
+        UpdateStatus.READY_TO_INSTALL -> "Ready" to MintSuccess
+        UpdateStatus.ERROR -> "Attention" to RoseError
+    }
+    AssistChip(
+        onClick = {},
+        label = { Text(label) },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = tint.copy(alpha = 0.18f),
+            labelColor = CloudText,
+        ),
+        border = null,
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -919,4 +1158,27 @@ private fun formatTimestamp(timestamp: Long?): String {
     if (timestamp == null) return "Unknown time"
     val formatter = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm")
     return formatter.format(Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()))
+}
+
+private fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0L) return "Size unknown"
+    val kib = 1024.0
+    val mib = kib * kib
+    return when {
+        bytes >= mib -> String.format(Locale.ROOT, "%.1f MB", bytes / mib)
+        bytes >= kib -> String.format(Locale.ROOT, "%.1f KB", bytes / kib)
+        else -> "$bytes B"
+    }
+}
+
+private fun releaseNotesPreview(body: String?): String? {
+    val cleaned = body
+        ?.lineSequence()
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?.take(4)
+        ?.joinToString("\n")
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+    return cleaned
 }

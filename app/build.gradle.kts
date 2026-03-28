@@ -19,10 +19,46 @@ fun Properties.requiredInt(key: String): Int =
 val versionMajor = versionProperties.requiredInt("VERSION_MAJOR")
 val versionMinor = versionProperties.requiredInt("VERSION_MINOR")
 val versionPatch = versionProperties.requiredInt("VERSION_PATCH")
+val signingPropertiesFile = rootProject.file("release-signing.properties")
+val signingProperties = Properties().apply {
+    if (signingPropertiesFile.exists()) {
+        signingPropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun readSigningProperty(key: String): String? =
+    System.getenv(key)?.takeIf { it.isNotBlank() }
+        ?: signingProperties.getProperty(key)?.takeIf { it.isNotBlank() }
+
+val signingStoreFile = readSigningProperty("PARCELPANEL_SIGNING_STORE_FILE")
+val signingStorePassword = readSigningProperty("PARCELPANEL_SIGNING_STORE_PASSWORD")
+val signingKeyAlias = readSigningProperty("PARCELPANEL_SIGNING_KEY_ALIAS")
+val signingKeyPassword = readSigningProperty("PARCELPANEL_SIGNING_KEY_PASSWORD")
+val hasReleaseSigning = listOf(
+    signingStoreFile,
+    signingStorePassword,
+    signingKeyAlias,
+    signingKeyPassword,
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "com.parcelpanel"
     compileSdk = 35
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(signingStoreFile!!)
+                storePassword = signingStorePassword
+                keyAlias = signingKeyAlias
+                keyPassword = signingKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.parcelpanel"
@@ -32,6 +68,11 @@ android {
         versionName = "$versionMajor.$versionMinor.$versionPatch"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "UPDATE_REPO_OWNER", "\"praj107\"")
+        buildConfigField("String", "UPDATE_REPO_NAME", "\"ParcelPanel\"")
+        buildConfigField("String", "UPDATE_RELEASES_LATEST_URL", "\"https://api.github.com/repos/praj107/ParcelPanel/releases/latest\"")
+        buildConfigField("String", "UPDATE_RELEASES_PAGE_URL", "\"https://github.com/praj107/ParcelPanel/releases\"")
+        buildConfigField("String", "UPDATE_USER_AGENT", "\"ParcelPanel-Android/${versionMajor}.${versionMinor}.${versionPatch}\"")
 
         ksp {
             arg("room.schemaLocation", "$projectDir/schemas")
@@ -42,6 +83,9 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -102,6 +146,7 @@ dependencies {
     ksp(libs.room.compiler)
 
     implementation(libs.coroutines.android)
+    implementation(libs.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.truth)

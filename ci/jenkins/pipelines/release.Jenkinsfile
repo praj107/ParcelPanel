@@ -98,8 +98,15 @@ pipeline {
 
         stage('Build Release Assets') {
             steps {
-                sh './scripts/build-release.sh'
-                sh 'scripts/ci/package-release.sh --version "$RELEASE_VERSION"'
+                withCredentials([
+                    file(credentialsId: 'parcelpanel-android-keystore', variable: 'PARCELPANEL_SIGNING_STORE_FILE'),
+                    string(credentialsId: 'parcelpanel-android-store-password', variable: 'PARCELPANEL_SIGNING_STORE_PASSWORD'),
+                    string(credentialsId: 'parcelpanel-android-key-alias', variable: 'PARCELPANEL_SIGNING_KEY_ALIAS'),
+                    string(credentialsId: 'parcelpanel-android-key-password', variable: 'PARCELPANEL_SIGNING_KEY_PASSWORD'),
+                ]) {
+                    sh './scripts/build-release.sh'
+                    sh 'scripts/ci/package-release.sh --version "$RELEASE_VERSION"'
+                }
             }
         }
 

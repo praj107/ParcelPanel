@@ -125,4 +125,6 @@ data class ParcelDetail(
 data class AppPreferencesModel(
     val syncIntervalHours: Int = 4,
     val apiKeys: Map<String, String> = emptyMap(),
+    val autoCheckUpdates: Boolean = true,
+    val lastUpdateCheckAt: Long? = null,
 )
