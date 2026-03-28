@@ -46,3 +46,43 @@ The packaged public release output is intentionally limited to:
 
 - `ParcelPanel-vX.Y.Z.apk`
 - `SHA256SUMS.txt`
+
+## OTA smoke coverage
+
+The repo now includes an emulator-based OTA smoke test on the minimum supported Android level. It uses an API 26 emulator and serves a fake GitHub release feed from loopback inside the instrumentation process, then verifies that ParcelPanel can:
+
+- discover a newer release
+- download the APK
+- validate `SHA256SUMS.txt`
+- confirm the APK matches the installed signing certificate
+- reach `READY_TO_INSTALL`
+
+Local command:
+
+```bash
+./gradlew --no-daemon testDebugUnitTest assembleDebug compileDebugAndroidTestKotlin
+scripts/ci/run-api26-connected-tests.sh
+```
+
+## GitHub Actions
+
+Two GitHub workflows mirror the local/Jenkins release model:
+
+- `.github/workflows/android-verify.yml`
+  - JVM tests and debug build
+  - API 26 emulator OTA smoke test
+- `.github/workflows/android-release.yml`
+  - manual `workflow_dispatch`
+  - runs verification first
+  - bumps `version.properties`
+  - builds the signed release APK
+  - packages `ParcelPanel-vX.Y.Z.apk` and `SHA256SUMS.txt`
+  - pushes the release commit/tag
+  - publishes the GitHub release consumed by the in-app OTA client
+
+Required GitHub secrets for the release workflow:
+
+- `PARCELPANEL_SIGNING_STORE_B64`
+- `PARCELPANEL_SIGNING_STORE_PASSWORD`
+- `PARCELPANEL_SIGNING_KEY_ALIAS`
+- `PARCELPANEL_SIGNING_KEY_PASSWORD`

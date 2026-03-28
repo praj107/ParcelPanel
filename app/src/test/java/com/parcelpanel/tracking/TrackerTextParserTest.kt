@@ -83,4 +83,25 @@ class TrackerTextParserTest {
         assertThat(snapshot?.status).isEqualTo(NormalizedStatus.DELIVERED)
         assertThat(snapshot?.deliveredAt).isNotNull()
     }
+
+    @Test
+    fun parse_auspostComingToday_detectsOutForDelivery() {
+        val snapshot = TrackerTextParser.parse(
+            carrierSlug = "auspost",
+            trackingNumber = "34CD91013562",
+            document = TrackerPageDocument(
+                pageTitle = "Australia Post Tracking",
+                finalUrl = "https://auspost.com.au/mypost/track/#/details/34CD91013562",
+                bodyText = """
+                    Tracking details for 34CD91013562
+                    Coming today
+                    On board for delivery in Perth WA
+                    27 Mar 2026 08:30
+                """.trimIndent(),
+            ),
+        )
+
+        assertThat(snapshot).isNotNull()
+        assertThat(snapshot?.status).isEqualTo(NormalizedStatus.OUT_FOR_DELIVERY)
+    }
 }

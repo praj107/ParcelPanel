@@ -42,4 +42,20 @@ class CarrierDetectorTest {
         assertThat(match.slug).isEqualTo("aramex")
         assertThat(match.confidence).isAtLeast(80)
     }
+
+    @Test
+    fun detectsAramexMpLabelFormat() {
+        val match = CarrierDetector.detect("MP0083215634").first()
+
+        assertThat(match.slug).isEqualTo("aramex")
+        assertThat(match.confidence).isAtLeast(95)
+    }
+
+    @Test
+    fun detectsAustraliaPostConsumerTrackingFormat() {
+        val matches = CarrierDetector.detect("34CD91013562")
+
+        assertThat(matches.first().slug).isEqualTo("auspost")
+        assertThat(matches.map { it.slug }).contains("startrack")
+    }
 }

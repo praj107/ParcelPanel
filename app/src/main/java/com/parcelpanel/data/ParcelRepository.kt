@@ -251,6 +251,7 @@ class ParcelRepository(
             RefreshRequest(
                 trackingNumber = identifier.value,
                 currentStatus = item.latestNormalizedStatus,
+                trigger = trigger,
             )
         )
         val effectiveStatus = if (envelope.result == SyncResult.SUCCESS) {

@@ -10,7 +10,7 @@ object TrackingSamples {
     val formatSamples: List<TrackingSample> = listOf(
         TrackingSample(
             carrierSlug = "auspost",
-            trackingNumber = "AB123456789AU",
+            trackingNumber = "34CD91013562",
             label = "Australia Post",
         ),
         TrackingSample(
@@ -45,7 +45,7 @@ object TrackingSamples {
         ),
         TrackingSample(
             carrierSlug = "aramex",
-            trackingNumber = "35672988035",
+            trackingNumber = "MP0083215634",
             label = "Aramex Australia",
         ),
     )

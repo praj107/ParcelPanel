@@ -1,0 +1,171 @@
+name: Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Version bump policy before packaging the release.
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - chore
+      release_branch:
+        description: Branch to push the release commit/tag to.
+        required: true
+        default: main
+        type: string
+      run_lint:
+        description: Run Android lint before releasing.
+        required: true
+        default: true
+        type: boolean
+      force_release_tag_update:
+        description: Force-update an existing release tag when repairing a partial release.
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve Android SDK
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          printf 'sdk.dir=%s\n' "$SDK_ROOT" > local.properties
+
+      - name: Make scripts executable
+        run: chmod +x gradlew scripts/build-release.sh scripts/ci/*.sh
+
+      - name: Unit tests and debug build
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug compileDebugAndroidTestKotlin
+
+      - name: Lint
+        if: ${{ inputs.run_lint }}
+        run: ./gradlew --no-daemon lintDebug
+
+      - name: Enable KVM access
+        run: |
+          if [[ -e /dev/kvm ]]; then
+            sudo chown root:kvm /dev/kvm
+            sudo chmod 0666 /dev/kvm
+          fi
+
+      - name: OTA smoke test on Android API 26 emulator
+        run: ./scripts/ci/run-api26-connected-tests.sh
+
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-verification-reports
+          path: |
+            app/build/reports/**
+            app/build/test-results/**
+            app/build/outputs/androidTest-results/**
+          if-no-files-found: warn
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve Android SDK
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          printf 'sdk.dir=%s\n' "$SDK_ROOT" > local.properties
+
+      - name: Make scripts executable
+        run: chmod +x gradlew scripts/build-release.sh scripts/ci/*.sh
+
+      - name: Check GitHub CLI
+        run: gh --version
+
+      - name: Bump version
+        id: version
+        run: |
+          version_output="$(scripts/ci/bump-version.sh "${{ inputs.release_type }}")"
+          printf '%s\n' "$version_output"
+          echo "$version_output" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize release keystore
+        env:
+          PARCELPANEL_SIGNING_STORE_B64: ${{ secrets.PARCELPANEL_SIGNING_STORE_B64 }}
+        run: |
+          if [[ -z "${PARCELPANEL_SIGNING_STORE_B64:-}" ]]; then
+            echo "Missing GitHub secret: PARCELPANEL_SIGNING_STORE_B64" >&2
+            exit 1
+          fi
+          printf '%s' "$PARCELPANEL_SIGNING_STORE_B64" | base64 --decode > "$RUNNER_TEMP/parcelpanel-release.keystore"
+
+      - name: Build and package signed release
+        env:
+          PARCELPANEL_SIGNING_STORE_FILE: ${{ runner.temp }}/parcelpanel-release.keystore
+          PARCELPANEL_SIGNING_STORE_PASSWORD: ${{ secrets.PARCELPANEL_SIGNING_STORE_PASSWORD }}
+          PARCELPANEL_SIGNING_KEY_ALIAS: ${{ secrets.PARCELPANEL_SIGNING_KEY_ALIAS }}
+          PARCELPANEL_SIGNING_KEY_PASSWORD: ${{ secrets.PARCELPANEL_SIGNING_KEY_PASSWORD }}
+        run: |
+          ./scripts/build-release.sh
+          scripts/ci/package-release.sh --version "${{ steps.version.outputs.VERSION_NAME }}"
+
+      - name: Push release refs and publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
+          FORCE_RELEASE_TAG_UPDATE: ${{ inputs.force_release_tag_update }}
+          GIT_USER_NAME: ParcelPanel Release Bot
+          GIT_USER_EMAIL: parcelpanel-release-bot@users.noreply.github.com
+          RELEASE_TAG: ${{ steps.version.outputs.VERSION_TAG }}
+        run: |
+          scripts/ci/push-release-refs.sh
+          scripts/ci/publish-github-release.sh
+
+      - name: Upload packaged release artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-assets
+          path: |
+            releases/**
+            app/build/outputs/apk/release/**
+          if-no-files-found: warn

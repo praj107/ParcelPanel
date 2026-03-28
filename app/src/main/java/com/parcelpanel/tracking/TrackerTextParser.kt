@@ -98,6 +98,8 @@ object TrackerTextParser {
             "captcha",
             "verify you are human",
             "bot",
+            "datadome",
+            "enable js and disable any ad blocker",
         )
         return blockedMarkers.any { marker -> text.contains(marker, ignoreCase = true) }
     }
@@ -128,11 +130,14 @@ object TrackerTextParser {
 
     private fun extractGenericUpdateMessage(text: String): String? {
         val phrases = listOf(
+            "coming today",
             "out for delivery",
             "delivery attempted",
             "available for collection",
             "delivered",
             "in transit",
+            "on its way",
+            "we've got it",
             "shipment information received",
             "label created",
             "collected",
@@ -165,7 +170,7 @@ object TrackerTextParser {
         return when {
             listOf("delivered", "received by consignee", "successfully delivered").any { haystack.contains(it) } ->
                 NormalizedStatus.DELIVERED
-            listOf("out for delivery", "delivery champion has the shipment", "with courier for delivery").any { haystack.contains(it) } ->
+            listOf("coming today", "out for delivery", "delivery champion has the shipment", "with courier for delivery").any { haystack.contains(it) } ->
                 NormalizedStatus.OUT_FOR_DELIVERY
             listOf("delivery attempted", "unable to deliver", "attempted delivery").any { haystack.contains(it) } ->
                 NormalizedStatus.DELIVERY_ATTEMPTED
@@ -177,9 +182,9 @@ object TrackerTextParser {
                 NormalizedStatus.RETURNED
             listOf("exception", "delay", "on hold", "delivery issue").any { haystack.contains(it) } ->
                 NormalizedStatus.EXCEPTION
-            listOf("in transit", "departed", "arrived at destination", "arrived at facility").any { haystack.contains(it) } ->
+            listOf("in transit", "on its way", "departed", "arrived at destination", "arrived at facility").any { haystack.contains(it) } ->
                 NormalizedStatus.IN_TRANSIT
-            listOf("collected", "picked up", "accepted").any { haystack.contains(it) } ->
+            listOf("we've got it", "collected", "picked up", "accepted").any { haystack.contains(it) } ->
                 NormalizedStatus.ACCEPTED
             listOf("label created", "shipment information received", "shipment created").any { haystack.contains(it) } ->
                 NormalizedStatus.LABEL_CREATED

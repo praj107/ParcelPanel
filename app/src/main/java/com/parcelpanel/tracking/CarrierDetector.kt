@@ -12,9 +12,16 @@ object CarrierDetector {
                 Regex("^1Z[0-9A-Z]{16}$").matches(candidate) -> {
                     add(match("ups", 98, "Classic UPS 1Z format"))
                 }
+                Regex("^MP[0-9]{10}$").matches(candidate) -> {
+                    add(match("aramex", 98, "Aramex Australia MP label format"))
+                }
                 Regex("^[A-Z]{2}[0-9]{9}AU$").matches(candidate) -> {
                     add(match("auspost", 95, "Australia Post article ID format"))
                     add(match("startrack", 78, "StarTrack often shares AusPost article patterns"))
+                }
+                Regex("^[0-9]{2}[A-Z]{2}[0-9]{8,}$").matches(candidate) -> {
+                    add(match("auspost", 90, "Australia Post domestic consumer tracking format"))
+                    add(match("startrack", 72, "StarTrack can share AusPost consumer tracker formats"))
                 }
                 Regex("^CP[0-9A-Z]{8,}$").matches(candidate) -> {
                     add(match("couriersplease", 96, "CouriersPlease public tracking prefix"))

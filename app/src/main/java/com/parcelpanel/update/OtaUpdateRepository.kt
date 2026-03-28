@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 class OtaUpdateRepository(
     private val context: Context,
     private val settingsRepository: SettingsRepository,
+    private val endpointConfig: UpdateEndpointConfig = UpdateEndpointConfig.fromBuildConfig(),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val updatesDir = File(context.cacheDir, "updates")
@@ -153,7 +154,7 @@ class OtaUpdateRepository(
     }
 
     private suspend fun fetchLatestRelease(): ReleaseDescriptor = withContext(Dispatchers.IO) {
-        val releaseJson = httpGetString(BuildConfig.UPDATE_RELEASES_LATEST_URL)
+        val releaseJson = httpGetString(endpointConfig.latestReleaseUrl)
         val release = GitHubReleaseParser.parseLatestRelease(releaseJson)
         ensureGithubUrl(release.htmlUrl)
         ensureGithubUrl(release.apkAsset.downloadUrl)
@@ -220,7 +221,7 @@ class OtaUpdateRepository(
         if (url.contains("/releases/latest")) {
             connection.setRequestProperty("Accept", "application/vnd.github+json")
         }
-        connection.setRequestProperty("User-Agent", BuildConfig.UPDATE_USER_AGENT)
+        connection.setRequestProperty("User-Agent", endpointConfig.userAgent)
         connection.connect()
         ensureGithubUrl(connection.url.toString())
         if (connection.responseCode !in 200..299) {
@@ -234,11 +235,8 @@ class OtaUpdateRepository(
 
     private fun ensureGithubUrl(url: String) {
         val host = URI(url).host?.lowercase().orEmpty()
-        val trusted = host == "github.com" ||
-            host == "api.github.com" ||
-            host == "objects.githubusercontent.com" ||
-            host == "release-assets.githubusercontent.com" ||
-            host.endsWith(".githubusercontent.com")
+        val trusted = host in endpointConfig.trustedHosts ||
+            endpointConfig.trustedHostSuffixes.any { suffix -> host.endsWith(suffix) }
         check(trusted) { "Unexpected update host: $host" }
     }
 
