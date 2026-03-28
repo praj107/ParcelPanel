@@ -32,5 +32,5 @@ if [[ ! -f "${PARCELPANEL_SIGNING_STORE_FILE}" ]]; then
   exit 1
 fi
 
-./gradlew --no-daemon clean assembleRelease
+./gradlew --no-daemon assembleRelease
 bash scripts/ci/verify-release-apk.sh
