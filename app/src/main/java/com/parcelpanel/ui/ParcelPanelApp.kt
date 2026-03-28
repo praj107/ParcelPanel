@@ -4,8 +4,10 @@ import android.content.Intent
 import android.net.Uri
 import com.parcelpanel.BuildConfig
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,18 +34,23 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LocalShipping
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Unarchive
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -61,6 +68,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -194,6 +202,24 @@ fun ParcelPanelApp(
                     items = inbox,
                     onOpen = { navController.navigate("$ROUTE_DETAIL/$it") },
                     onAdd = { navController.navigate(ROUTE_ADD) },
+                    onArchiveSelected = { itemIds ->
+                        viewModel.setArchived(itemIds, archived = true) { count ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (count == 1) "1 parcel archived" else "$count parcels archived"
+                                )
+                            }
+                        }
+                    },
+                    onDeleteSelected = { itemIds ->
+                        viewModel.deleteTrackedItems(itemIds) { count ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (count == 1) "1 parcel deleted" else "$count parcels deleted"
+                                )
+                            }
+                        }
+                    },
                 )
             }
             composable(ROUTE_ADD) {
@@ -217,6 +243,24 @@ fun ParcelPanelApp(
                 HistoryScreen(
                     items = history,
                     onOpen = { navController.navigate("$ROUTE_DETAIL/$it") },
+                    onRestoreSelected = { itemIds ->
+                        viewModel.setArchived(itemIds, archived = false) { count ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (count == 1) "1 parcel restored" else "$count parcels restored"
+                                )
+                            }
+                        }
+                    },
+                    onDeleteSelected = { itemIds ->
+                        viewModel.deleteTrackedItems(itemIds) { count ->
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (count == 1) "1 parcel deleted" else "$count parcels deleted"
+                                )
+                            }
+                        }
+                    },
                 )
             }
             composable(ROUTE_SETTINGS) {
@@ -260,6 +304,18 @@ fun ParcelPanelApp(
                     },
                     onArchiveToggle = { archived ->
                         viewModel.setArchived(itemId, archived)
+                    },
+                    onDelete = {
+                        viewModel.deleteTrackedItem(itemId) { deleted ->
+                            scope.launch {
+                                if (deleted) {
+                                    navController.navigateUp()
+                                }
+                                snackbarHostState.showSnackbar(
+                                    if (deleted) "Parcel deleted" else "Parcel could not be deleted"
+                                )
+                            }
+                        }
                     }
                 )
             }
@@ -272,7 +328,38 @@ private fun InboxScreen(
     items: List<ParcelSummary>,
     onOpen: (String) -> Unit,
     onAdd: () -> Unit,
+    onArchiveSelected: (List<String>) -> Unit,
+    onDeleteSelected: (List<String>) -> Unit,
 ) {
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var pendingDeleteIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    val currentIds = remember(items) { items.map { it.id } }
+
+    LaunchedEffect(currentIds) {
+        selectedIds = selectedIds.filter { it in currentIds }
+        pendingDeleteIds = pendingDeleteIds.filter { it in currentIds }
+        if (currentIds.isEmpty()) {
+            selectionMode = false
+            selectedIds = emptyList()
+        }
+    }
+
+    pendingDeleteIds.takeIf { it.isNotEmpty() }?.let { deleteIds ->
+        DeleteParcelsDialog(
+            count = deleteIds.size,
+            onConfirm = {
+                onDeleteSelected(deleteIds)
+                pendingDeleteIds = emptyList()
+                selectedIds = selectedIds.filterNot { it in deleteIds }
+                if (selectedIds.isEmpty()) {
+                    selectionMode = false
+                }
+            },
+            onDismiss = { pendingDeleteIds = emptyList() },
+        )
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
@@ -298,8 +385,55 @@ private fun InboxScreen(
             item {
                 SummaryStrip(items)
             }
+            item {
+                ParcelBulkActionCard(
+                    title = "Active parcels",
+                    supportingText = "Long press any card or switch into selection mode for bulk archive and delete.",
+                    selectionMode = selectionMode,
+                    selectedCount = selectedIds.size,
+                    totalCount = items.size,
+                    primaryActionLabel = "Archive",
+                    primaryActionIcon = Icons.Rounded.Archive,
+                    onToggleSelectionMode = {
+                        selectionMode = !selectionMode
+                        if (!selectionMode) {
+                            selectedIds = emptyList()
+                        }
+                    },
+                    onSelectAll = {
+                        selectedIds = if (selectedIds.size == items.size) emptyList() else items.map { it.id }
+                    },
+                    onPrimaryAction = {
+                        if (selectedIds.isNotEmpty()) {
+                            onArchiveSelected(selectedIds)
+                            selectionMode = false
+                            selectedIds = emptyList()
+                        }
+                    },
+                    onDelete = {
+                        if (selectedIds.isNotEmpty()) {
+                            pendingDeleteIds = selectedIds
+                        }
+                    },
+                )
+            }
             items(items, key = { it.id }) { item ->
-                ParcelCard(item = item, onClick = { onOpen(item.id) })
+                ParcelCard(
+                    item = item,
+                    onClick = { onOpen(item.id) },
+                    selectionMode = selectionMode,
+                    selected = item.id in selectedIds,
+                    onSelectionToggle = { selected ->
+                        selectedIds = selectedIds.withSelection(item.id, selected)
+                        if (!selected && selectedIds.isEmpty()) {
+                            selectionMode = false
+                        }
+                    },
+                    onLongPress = {
+                        selectionMode = true
+                        selectedIds = selectedIds.withSelection(item.id, true)
+                    },
+                )
             }
         }
     }
@@ -309,7 +443,38 @@ private fun InboxScreen(
 private fun HistoryScreen(
     items: List<ParcelSummary>,
     onOpen: (String) -> Unit,
+    onRestoreSelected: (List<String>) -> Unit,
+    onDeleteSelected: (List<String>) -> Unit,
 ) {
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var pendingDeleteIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    val currentIds = remember(items) { items.map { it.id } }
+
+    LaunchedEffect(currentIds) {
+        selectedIds = selectedIds.filter { it in currentIds }
+        pendingDeleteIds = pendingDeleteIds.filter { it in currentIds }
+        if (currentIds.isEmpty()) {
+            selectionMode = false
+            selectedIds = emptyList()
+        }
+    }
+
+    pendingDeleteIds.takeIf { it.isNotEmpty() }?.let { deleteIds ->
+        DeleteParcelsDialog(
+            count = deleteIds.size,
+            onConfirm = {
+                onDeleteSelected(deleteIds)
+                pendingDeleteIds = emptyList()
+                selectedIds = selectedIds.filterNot { it in deleteIds }
+                if (selectedIds.isEmpty()) {
+                    selectionMode = false
+                }
+            },
+            onDismiss = { pendingDeleteIds = emptyList() },
+        )
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
@@ -332,8 +497,55 @@ private fun HistoryScreen(
                 )
             }
         } else {
+            item {
+                ParcelBulkActionCard(
+                    title = "Archived parcels",
+                    supportingText = "Restore shipments back into the inbox or remove them permanently in one pass.",
+                    selectionMode = selectionMode,
+                    selectedCount = selectedIds.size,
+                    totalCount = items.size,
+                    primaryActionLabel = "Restore",
+                    primaryActionIcon = Icons.Rounded.Unarchive,
+                    onToggleSelectionMode = {
+                        selectionMode = !selectionMode
+                        if (!selectionMode) {
+                            selectedIds = emptyList()
+                        }
+                    },
+                    onSelectAll = {
+                        selectedIds = if (selectedIds.size == items.size) emptyList() else items.map { it.id }
+                    },
+                    onPrimaryAction = {
+                        if (selectedIds.isNotEmpty()) {
+                            onRestoreSelected(selectedIds)
+                            selectionMode = false
+                            selectedIds = emptyList()
+                        }
+                    },
+                    onDelete = {
+                        if (selectedIds.isNotEmpty()) {
+                            pendingDeleteIds = selectedIds
+                        }
+                    },
+                )
+            }
             items(items, key = { it.id }) { item ->
-                ParcelCard(item = item, onClick = { onOpen(item.id) })
+                ParcelCard(
+                    item = item,
+                    onClick = { onOpen(item.id) },
+                    selectionMode = selectionMode,
+                    selected = item.id in selectedIds,
+                    onSelectionToggle = { selected ->
+                        selectedIds = selectedIds.withSelection(item.id, selected)
+                        if (!selected && selectedIds.isEmpty()) {
+                            selectionMode = false
+                        }
+                    },
+                    onLongPress = {
+                        selectionMode = true
+                        selectedIds = selectedIds.withSelection(item.id, true)
+                    },
+                )
             }
         }
     }
@@ -797,6 +1009,7 @@ private fun DetailScreen(
     onOpenTracker: (String?) -> Unit,
     onRefresh: () -> Unit,
     onArchiveToggle: (Boolean) -> Unit,
+    onDelete: () -> Unit,
 ) {
     val currentDetail = detail
     if (currentDetail == null) {
@@ -804,6 +1017,18 @@ private fun DetailScreen(
             Text("Loading parcel…", color = MistText)
         }
         return
+    }
+    var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
+
+    if (showDeleteConfirmation) {
+        DeleteParcelsDialog(
+            count = 1,
+            onConfirm = {
+                showDeleteConfirmation = false
+                onDelete()
+            },
+            onDismiss = { showDeleteConfirmation = false },
+        )
     }
 
     Scaffold(
@@ -826,7 +1051,13 @@ private fun DetailScreen(
                         Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
                     }
                     IconButton(onClick = { onArchiveToggle(!currentDetail.archived) }) {
-                        Icon(Icons.Rounded.Archive, contentDescription = "Archive")
+                        Icon(
+                            if (currentDetail.archived) Icons.Rounded.Unarchive else Icons.Rounded.Archive,
+                            contentDescription = if (currentDetail.archived) "Restore" else "Archive",
+                        )
+                    }
+                    IconButton(onClick = { showDeleteConfirmation = true }) {
+                        Icon(Icons.Rounded.Delete, contentDescription = "Delete")
                     }
                     IconButton(
                         onClick = { onOpenTracker(currentDetail.trackerUrl) },
@@ -870,6 +1101,14 @@ private fun DetailScreen(
                         StatusChip(currentDetail.status)
                         currentDetail.serviceName?.let {
                             Text("Service: $it", color = MistText)
+                        }
+                        currentDetail.notes?.let {
+                            Text(it, color = CloudText, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        currentDetail.deliveredAt?.let {
+                            Text("Delivered ${formatTimestamp(it)}", color = MintSuccess)
+                        } ?: currentDetail.etaEnd?.let {
+                            Text("ETA ${formatTimestamp(it)}", color = MistText)
                         }
                         Text(
                             text = "Last updated ${formatTimestamp(currentDetail.updatedAt)}",
@@ -934,12 +1173,35 @@ private fun MetricCard(label: String, value: String, accent: Color, modifier: Mo
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ParcelCard(item: ParcelSummary, onClick: () -> Unit) {
+private fun ParcelCard(
+    item: ParcelSummary,
+    onClick: () -> Unit,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onSelectionToggle: (Boolean) -> Unit = {},
+    onLongPress: () -> Unit = {},
+) {
     OutlinedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) {
+                        onSelectionToggle(!selected)
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = {
+                    if (selectionMode) {
+                        onSelectionToggle(!selected)
+                    } else {
+                        onLongPress()
+                    }
+                },
+            ),
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, BorderSoft),
         shape = RoundedCornerShape(24.dp),
@@ -955,7 +1217,14 @@ private fun ParcelCard(item: ParcelSummary, onClick: () -> Unit) {
                     Text(item.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(item.trackingNumber, style = MaterialTheme.typography.bodyMedium, color = MistText)
                 }
-                Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MistText)
+                if (selectionMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = { checked -> onSelectionToggle(checked) },
+                    )
+                } else {
+                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MistText)
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -992,6 +1261,9 @@ private fun EventCard(event: com.parcelpanel.model.TimelineEvent) {
             event.description?.let {
                 Text(it, color = MistText, style = MaterialTheme.typography.bodyMedium)
             }
+            event.location?.let {
+                Text(it, color = CloudText, style = MaterialTheme.typography.bodyMedium)
+            }
             Text(
                 text = formatTimestamp(event.occurredAt),
                 color = MistText,
@@ -999,6 +1271,107 @@ private fun EventCard(event: com.parcelpanel.model.TimelineEvent) {
             )
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ParcelBulkActionCard(
+    title: String,
+    supportingText: String,
+    selectionMode: Boolean,
+    selectedCount: Int,
+    totalCount: Int,
+    primaryActionLabel: String,
+    primaryActionIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    onToggleSelectionMode: () -> Unit,
+    onSelectAll: () -> Unit,
+    onPrimaryAction: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    OutlinedCard(
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, BorderSoft),
+        shape = RoundedCornerShape(24.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (selectionMode) "$selectedCount selected" else title,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = if (selectionMode) {
+                            "Bulk actions apply across the visible list."
+                        } else {
+                            supportingText
+                        },
+                        color = MistText,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                OutlinedButton(onClick = onToggleSelectionMode) {
+                    Text(if (selectionMode) "Done" else "Select")
+                }
+            }
+            if (selectionMode) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(onClick = onSelectAll) {
+                        Icon(Icons.Rounded.SelectAll, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (selectedCount == totalCount) "Clear" else "Select all")
+                    }
+                    OutlinedButton(onClick = onPrimaryAction, enabled = selectedCount > 0) {
+                        Icon(primaryActionIcon, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(primaryActionLabel)
+                    }
+                    OutlinedButton(onClick = onDelete, enabled = selectedCount > 0) {
+                        Icon(Icons.Rounded.Delete, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Delete")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeleteParcelsDialog(
+    count: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(if (count == 1) "Delete parcel?" else "Delete $count parcels?")
+        },
+        text = {
+            Text("This removes the parcel, its archived/current state, and the locally stored tracking history for it.")
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Delete")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 @Composable
@@ -1138,6 +1511,13 @@ private fun EmptyStateCard(
         }
     }
 }
+
+private fun List<String>.withSelection(itemId: String, selected: Boolean): List<String> =
+    if (selected) {
+        (this + itemId).distinct()
+    } else {
+        filterNot { it == itemId }
+    }
 
 private fun statusColor(status: NormalizedStatus): Color = when (status) {
     NormalizedStatus.DELIVERED -> MintSuccess

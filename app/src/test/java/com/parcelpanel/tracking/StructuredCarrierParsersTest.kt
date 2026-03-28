@@ -54,8 +54,41 @@ class StructuredCarrierParsersTest {
         assertThat(snapshot?.status).isEqualTo(NormalizedStatus.DELIVERED)
         assertThat(snapshot?.serviceName).isEqualTo("Signature Service")
         assertThat(snapshot?.events).hasSize(2)
+        assertThat(snapshot?.events?.first()?.title).isEqualTo("Delivered to front door")
+        assertThat(snapshot?.events?.first()?.location).isEqualTo("Perth")
         assertThat(snapshot?.deliveredAt).isNotNull()
         assertThat(snapshot?.etaEnd).isNotNull()
+    }
+
+    @Test
+    fun aramexStructuredPayload_keepsFullTimelineBeyondSixEvents() {
+        val scans = (1..8).joinToString(separator = ",") { index ->
+            """
+                {
+                  "Status": "CBR",
+                  "Date": "28/03/2026 ${"%02d".format(index)}:15",
+                  "Description": "Checkpoint $index",
+                  "Name": "Depot $index"
+                }
+            """.trimIndent()
+        }
+
+        val snapshot = AramexAuTrackingParser.parse(
+            trackingNumber = "MP0011111111",
+            rawResponseBody = """
+                ({
+                  "result": {
+                    "Scans": [
+                      $scans
+                    ]
+                  }
+                });
+            """.trimIndent(),
+        )
+
+        assertThat(snapshot).isNotNull()
+        assertThat(snapshot?.events).hasSize(8)
+        assertThat(snapshot?.events?.last()?.title).isEqualTo("Checkpoint 8")
     }
 
     @Test
@@ -114,7 +147,50 @@ class StructuredCarrierParsersTest {
         assertThat(snapshot?.status).isEqualTo(NormalizedStatus.DELIVERED)
         assertThat(snapshot?.message).contains("Delivered")
         assertThat(snapshot?.events).hasSize(2)
+        assertThat(snapshot?.events?.first()?.location).isEqualTo("PERTH WA")
         assertThat(snapshot?.deliveredAt).isEqualTo(1774610400000)
         assertThat(snapshot?.etaEnd).isNotNull()
+    }
+
+    @Test
+    fun australiaPostStructuredPayload_keepsFullTimelineBeyondSixEvents() {
+        val events = (1..7).joinToString(separator = ",") { index ->
+            """
+                {
+                  "dateTime": ${1774500000000L + (index * 60_000L)},
+                  "description": "Checkpoint $index",
+                  "location": "Location $index",
+                  "eventCode": "EV$index",
+                  "milestone": "Milestone $index"
+                }
+            """.trimIndent()
+        }
+
+        val snapshot = AustraliaPostStructuredParser.parse(
+            trackingNumber = "34CD91013562",
+            rawResponseBody = """
+                {
+                  "shipments": [
+                    {
+                      "consignmentId": "34CD91013562",
+                      "articleCount": 1,
+                      "articles": [
+                        {
+                          "articleId": "34CD91013562",
+                          "trackStatusOfArticle": "In transit",
+                          "events": [
+                            $events
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+            """.trimIndent(),
+        )
+
+        assertThat(snapshot).isNotNull()
+        assertThat(snapshot?.events).hasSize(7)
+        assertThat(snapshot?.events?.last()?.location).isEqualTo("Location 7")
     }
 }

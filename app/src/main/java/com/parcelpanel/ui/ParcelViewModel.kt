@@ -97,6 +97,24 @@ class ParcelViewModel(
         }
     }
 
+    fun setArchived(itemIds: Collection<String>, archived: Boolean, onComplete: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            onComplete(repository.setArchived(itemIds, archived))
+        }
+    }
+
+    fun deleteTrackedItem(itemId: String, onComplete: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            onComplete(repository.deleteTrackedItem(itemId))
+        }
+    }
+
+    fun deleteTrackedItems(itemIds: Collection<String>, onComplete: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            onComplete(repository.deleteTrackedItems(itemIds))
+        }
+    }
+
     fun updateSyncInterval(hours: Int) {
         viewModelScope.launch {
             repository.setSyncIntervalHours(hours)

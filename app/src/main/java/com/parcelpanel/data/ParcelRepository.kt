@@ -21,6 +21,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.util.UUID
 
 class ParcelRepository(
@@ -90,13 +97,14 @@ class ParcelRepository(
                     deliveredAt = item.deliveredAt,
                     etaEnd = snapshot?.etaEnd,
                     timeline = events.map { event ->
+                        val eventLocation = decodeEventLocation(event.rawEventJson)
                         TimelineEvent(
                             id = event.id,
                             title = event.carrierEventLabel ?: event.normalizedEventType.replace('_', ' '),
                             description = event.description,
                             status = event.normalizedStatus,
                             occurredAt = event.occurredAt,
-                            location = null,
+                            location = eventLocation,
                         )
                     },
                     syncEntries = syncEntries.map {
@@ -313,8 +321,8 @@ class ParcelRepository(
                             pieceId = null,
                             sequenceNo = index,
                             occurredAt = event.occurredAt,
-                            timezone = null,
-                            carrierEventCode = null,
+                            timezone = event.timezone,
+                            carrierEventCode = event.carrierEventCode,
                             carrierEventLabel = event.title,
                             normalizedEventType = event.status.name.lowercase(),
                             normalizedStatus = event.status,
@@ -323,7 +331,7 @@ class ParcelRepository(
                             placeId = null,
                             actorType = "carrier_web",
                             isException = event.status == NormalizedStatus.EXCEPTION,
-                            rawEventJson = """{"message":"${escapeJson(event.description ?: event.title)}"}""",
+                            rawEventJson = encodeEventPayload(event),
                         )
                     }
                 )
@@ -373,13 +381,31 @@ class ParcelRepository(
     }
 
     suspend fun setArchived(itemId: String, archived: Boolean) {
-        val item = dao.getTrackedItem(itemId) ?: return
-        dao.upsertTrackedItem(
-            item.copy(
-                archived = archived,
-                updatedAt = System.currentTimeMillis(),
-            )
-        )
+        setArchived(itemIds = listOf(itemId), archived = archived)
+    }
+
+    suspend fun setArchived(itemIds: Collection<String>, archived: Boolean): Int {
+        val ids = itemIds.distinct().filter { it.isNotBlank() }
+        if (ids.isEmpty()) return 0
+        return dao.setArchived(ids, archived, System.currentTimeMillis())
+    }
+
+    suspend fun deleteTrackedItem(itemId: String): Boolean =
+        deleteTrackedItems(listOf(itemId)) > 0
+
+    suspend fun deleteTrackedItems(itemIds: Collection<String>): Int {
+        val ids = itemIds.distinct().filter { it.isNotBlank() }
+        if (ids.isEmpty()) return 0
+        return database.withTransaction {
+            dao.deleteTrackingEventsForTrackedItems(ids)
+            dao.deleteShipmentPiecesForTrackedItems(ids)
+            dao.deleteDeliveryArtifactsForTrackedItems(ids)
+            dao.deleteRawPayloadsForTrackedItems(ids)
+            dao.deleteShipmentSnapshotsForTrackedItems(ids)
+            dao.deleteTrackingIdentifiersForTrackedItems(ids)
+            dao.deleteSyncSessionsForTrackedItems(ids)
+            dao.deleteTrackedItems(ids)
+        }
     }
 
     suspend fun setSyncIntervalHours(hours: Int) {
@@ -412,6 +438,32 @@ class ParcelRepository(
             .replace("\r", "\\r")
             .replace("\t", "\\t")
 
+    private fun encodeEventPayload(event: ParsedRefreshEvent): String =
+        buildJsonObject {
+            put("title", event.title)
+            event.description?.let { put("description", it) }
+            event.location?.let { put("location", it) }
+            event.timezone?.let { put("timezone", it) }
+            event.carrierEventCode?.let { put("carrierEventCode", it) }
+            event.rawEventJson?.let { raw ->
+                val original = runCatching { eventJson.parseToJsonElement(raw) }.getOrNull()
+                put("sourceEvent", original ?: JsonPrimitive(raw))
+            }
+        }.toString()
+
+    private fun decodeEventLocation(rawEventJson: String?): String? {
+        val raw = rawEventJson?.takeIf { it.isNotBlank() } ?: return null
+        val root = runCatching { eventJson.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
+        val sourceEvent = root["sourceEvent"] as? kotlinx.serialization.json.JsonObject
+        return listOf(
+            root["location"]?.jsonPrimitive?.contentOrNull,
+            root["Location"]?.jsonPrimitive?.contentOrNull,
+            sourceEvent?.get("location")?.jsonPrimitive?.contentOrNull,
+            sourceEvent?.get("Location")?.jsonPrimitive?.contentOrNull,
+            sourceEvent?.get("Name")?.jsonPrimitive?.contentOrNull,
+        ).firstOrNull { !it.isNullOrBlank() }
+    }
+
     private data class DetailBase(
         val item: TrackedItemEntity?,
         val identifier: TrackingIdentifierEntity?,
@@ -419,4 +471,11 @@ class ParcelRepository(
         val syncEntries: List<SyncSessionEntity>,
         val profiles: List<CarrierProfileEntity>,
     )
+
+    private companion object {
+        val eventJson = Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+        }
+    }
 }

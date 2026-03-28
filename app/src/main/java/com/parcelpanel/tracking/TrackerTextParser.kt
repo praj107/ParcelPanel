@@ -11,6 +11,10 @@ data class ParsedRefreshEvent(
     val description: String?,
     val status: NormalizedStatus,
     val occurredAt: Long?,
+    val location: String? = null,
+    val timezone: String? = null,
+    val carrierEventCode: String? = null,
+    val rawEventJson: String? = null,
 )
 
 data class ParsedTrackingSnapshot(

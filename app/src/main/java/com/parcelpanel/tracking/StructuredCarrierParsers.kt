@@ -119,7 +119,7 @@ object AramexAuTrackingParser {
         val events = scans.take(MAX_STRUCTURED_EVENTS).map { scan ->
             val status = mapStructuredStatus(
                 primaryCode = scan.statusCode,
-                message = scan.message,
+                message = listOfNotNull(scan.eventTitle, scan.detail, scan.location).joinToString(" "),
                 acceptedCodes = ARAMEX_ACCEPTED_CODES,
                 inTransitCodes = ARAMEX_IN_TRANSIT_CODES,
                 exceptionCodes = ARAMEX_EXCEPTION_CODES,
@@ -136,9 +136,12 @@ object AramexAuTrackingParser {
                     explicitTitle = scan.eventTitle,
                     fallbackStatus = status,
                 ),
-                description = scan.message,
+                description = scan.detail,
                 status = status,
                 occurredAt = scan.occurredAt,
+                location = scan.location,
+                carrierEventCode = scan.statusCode,
+                rawEventJson = scan.rawJson,
             )
         }
 
@@ -253,13 +256,16 @@ object AustraliaPostStructuredParser {
                     labelCreatedCodes = emptySet(),
                 )
                 ParsedRefreshEvent(
-                    title = structuredTitle(event.milestone, status),
-                    description = buildList {
-                        if (!event.description.isNullOrBlank()) add(event.description)
-                        if (!event.location.isNullOrBlank()) add(event.location)
-                    }.joinToString(" • ").ifBlank { null },
+                    title = structuredTitle(event.milestone ?: event.description, status),
+                    description = event.description?.takeUnless {
+                        val title = event.milestone ?: event.description
+                        !title.isNullOrBlank() && it.equals(title, ignoreCase = true)
+                    },
                     status = status,
                     occurredAt = normalizeEpoch(event.occurredAt),
+                    location = event.location,
+                    carrierEventCode = event.eventCode,
+                    rawEventJson = event.rawJson,
                 )
             }
         } else {
@@ -302,9 +308,11 @@ private val carrierJson = Json {
 
 private data class AramexScan(
     val statusCode: String?,
-    val message: String?,
     val eventTitle: String?,
+    val detail: String?,
+    val location: String?,
     val occurredAt: Long?,
+    val rawJson: String,
 )
 
 private data class AustraliaPostEvent(
@@ -313,34 +321,37 @@ private data class AustraliaPostEvent(
     val location: String?,
     val eventCode: String?,
     val milestone: String?,
+    val rawJson: String,
 )
 
 private fun parseAramexScan(element: JsonElement): AramexScan? {
     val scan = element as? JsonObject ?: return null
     val statusCode = scan.stringOrNull("Status") ?: scan.stringOrNull("StatusCode")
+    val eventTitle = listOfNotNull(
+        scan.stringOrNull("Description"),
+        scan.stringOrNull("StatusDescription"),
+    ).firstOrNull()
     val locationName = listOfNotNull(
         scan.stringOrNull("Location"),
         scan.stringOrNull("Name"),
         scan.stringOrNull("Franchise"),
     ).firstOrNull()
     val companyName = scan.objectOrNull("CompanyInfo")?.stringOrNull("contactName")
-    val description = listOfNotNull(
-        scan.stringOrNull("Description"),
-        scan.stringOrNull("StatusDescription"),
-        companyName,
-        locationName,
-    ).firstOrNull()
+    val detail = buildList {
+        if (!companyName.isNullOrBlank() && companyName != eventTitle && companyName != locationName) {
+            add(companyName)
+        }
+    }.joinToString(" • ").ifBlank { null }
 
-    if (statusCode == null && description == null) return null
+    if (statusCode == null && eventTitle == null && locationName == null) return null
 
     return AramexScan(
         statusCode = statusCode,
-        message = buildList {
-            if (!description.isNullOrBlank()) add(description)
-            if (!locationName.isNullOrBlank() && locationName != description) add(locationName)
-        }.distinct().joinToString(" • ").ifBlank { null },
-        eventTitle = locationName,
+        eventTitle = eventTitle,
+        detail = detail,
+        location = locationName,
         occurredAt = parseAramexDate(scan.stringOrNull("Date")),
+        rawJson = scan.toString(),
     )
 }
 
@@ -352,6 +363,7 @@ private fun parseAustraliaPostEvent(event: JsonObject?): AustraliaPostEvent? {
         location = event.stringOrNull("location"),
         eventCode = event.stringOrNull("eventCode"),
         milestone = event.stringOrNull("milestone"),
+        rawJson = event.toString(),
     )
 }
 
@@ -546,7 +558,7 @@ private fun JsonObject.objectOrNull(name: String): JsonObject? =
 private fun JsonObject.arrayOrNull(name: String): JsonArray? =
     this[name] as? JsonArray
 
-private const val MAX_STRUCTURED_EVENTS = 6
+private const val MAX_STRUCTURED_EVENTS = 64
 
 private val ARAMEX_LABEL_CREATED_CODES = setOf(
     "ARP",

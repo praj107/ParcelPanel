@@ -32,6 +32,61 @@ interface ParcelDao {
     @Query("UPDATE shipment_snapshot SET is_current = 0 WHERE tracked_item_id = :trackedItemId")
     suspend fun markSnapshotsNotCurrent(trackedItemId: String)
 
+    @Query("UPDATE tracked_item SET archived = :archived, updated_at = :updatedAt WHERE id IN (:itemIds)")
+    suspend fun setArchived(itemIds: List<String>, archived: Boolean, updatedAt: Long): Int
+
+    @Query(
+        """
+        DELETE FROM tracking_event
+        WHERE snapshot_id IN (
+            SELECT id FROM shipment_snapshot WHERE tracked_item_id IN (:itemIds)
+        )
+        """
+    )
+    suspend fun deleteTrackingEventsForTrackedItems(itemIds: List<String>)
+
+    @Query(
+        """
+        DELETE FROM shipment_piece
+        WHERE snapshot_id IN (
+            SELECT id FROM shipment_snapshot WHERE tracked_item_id IN (:itemIds)
+        )
+        """
+    )
+    suspend fun deleteShipmentPiecesForTrackedItems(itemIds: List<String>)
+
+    @Query(
+        """
+        DELETE FROM delivery_artifact
+        WHERE snapshot_id IN (
+            SELECT id FROM shipment_snapshot WHERE tracked_item_id IN (:itemIds)
+        )
+        """
+    )
+    suspend fun deleteDeliveryArtifactsForTrackedItems(itemIds: List<String>)
+
+    @Query(
+        """
+        DELETE FROM raw_payload
+        WHERE snapshot_id IN (
+            SELECT id FROM shipment_snapshot WHERE tracked_item_id IN (:itemIds)
+        )
+        """
+    )
+    suspend fun deleteRawPayloadsForTrackedItems(itemIds: List<String>)
+
+    @Query("DELETE FROM shipment_snapshot WHERE tracked_item_id IN (:itemIds)")
+    suspend fun deleteShipmentSnapshotsForTrackedItems(itemIds: List<String>)
+
+    @Query("DELETE FROM tracking_identifier WHERE tracked_item_id IN (:itemIds)")
+    suspend fun deleteTrackingIdentifiersForTrackedItems(itemIds: List<String>)
+
+    @Query("DELETE FROM sync_session WHERE tracked_item_id IN (:itemIds)")
+    suspend fun deleteSyncSessionsForTrackedItems(itemIds: List<String>)
+
+    @Query("DELETE FROM tracked_item WHERE id IN (:itemIds)")
+    suspend fun deleteTrackedItems(itemIds: List<String>): Int
+
     @Query(
         """
         SELECT
@@ -111,4 +166,3 @@ interface ParcelDao {
     @Query("SELECT COUNT(*) FROM carrier_profile")
     suspend fun carrierProfileCount(): Int
 }
-
