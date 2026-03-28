@@ -5,6 +5,8 @@ import com.parcelpanel.model.CarrierDefinition
 import com.parcelpanel.model.ConnectorMode
 import com.parcelpanel.model.NormalizedStatus
 import com.parcelpanel.model.SyncResult
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 object CarrierCatalog {
     val all: List<CarrierDefinition> = listOf(
@@ -12,92 +14,92 @@ object CarrierCatalog {
             slug = "auspost",
             displayName = "Australia Post",
             initials = "AP",
-            authMode = CarrierAuthMode.EXTERNAL_TRACKER_ONLY,
+            authMode = CarrierAuthMode.PUBLIC,
             connectorMode = ConnectorMode.EXTERNAL_TRACKER,
             supportTier = 1,
             activeInAustralia = true,
             supportsPod = true,
             supportsMultiPiece = true,
             trackerUrlTemplate = "https://auspost.com.au/mypost/track/#/details/{trackingNumber}",
-            notes = "Public consumer tracking is available; authenticated business APIs are contract-oriented."
+            notes = "ParcelPanel now attempts to scrape the official consumer tracker first, then falls back to hand-off if the page blocks extraction."
         ),
         CarrierDefinition(
             slug = "startrack",
             displayName = "StarTrack",
             initials = "ST",
-            authMode = CarrierAuthMode.EXTERNAL_TRACKER_ONLY,
+            authMode = CarrierAuthMode.PUBLIC,
             connectorMode = ConnectorMode.EXTERNAL_TRACKER,
             supportTier = 1,
             activeInAustralia = true,
             supportsPod = true,
             supportsMultiPiece = true,
             trackerUrlTemplate = "https://auspost.com.au/mypost/track/#/details/{trackingNumber}",
-            notes = "Handled alongside Australia Post in v1."
+            notes = "ParcelPanel now attempts to scrape the official StarTrack/AusPost tracker first."
         ),
         CarrierDefinition(
             slug = "dhl",
             displayName = "DHL",
             initials = "DH",
-            authMode = CarrierAuthMode.USER_SUPPLIED_KEY,
+            authMode = CarrierAuthMode.PUBLIC,
             connectorMode = ConnectorMode.API_READY,
             supportTier = 1,
             activeInAustralia = true,
             supportsPod = true,
             supportsMultiPiece = true,
             trackerUrlTemplate = "https://www.dhl.com/au-en/home/tracking/tracking-express.html?submit=1&tracking-id={trackingNumber}",
-            notes = "Official tracking APIs exist, but mobile-safe live polling should use a user-supplied key."
+            notes = "ParcelPanel tries the public DHL tracker page first and can still move to account-backed APIs later."
         ),
         CarrierDefinition(
             slug = "fedex",
             displayName = "FedEx / TNT",
             initials = "FX",
-            authMode = CarrierAuthMode.USER_SUPPLIED_ACCOUNT,
+            authMode = CarrierAuthMode.PUBLIC,
             connectorMode = ConnectorMode.ACCOUNT_READY,
             supportTier = 1,
             activeInAustralia = true,
             supportsPod = true,
             supportsMultiPiece = true,
             trackerUrlTemplate = "https://www.fedex.com/fedextrack/?trknbr={trackingNumber}",
-            notes = "FedEx Track API is available; live mobile polling is deferred until account-backed configuration exists."
+            notes = "ParcelPanel tries the public FedEx tracker page first and can still move to account-backed APIs later."
         ),
         CarrierDefinition(
             slug = "ups",
             displayName = "UPS",
             initials = "UP",
-            authMode = CarrierAuthMode.USER_SUPPLIED_ACCOUNT,
+            authMode = CarrierAuthMode.PUBLIC,
             connectorMode = ConnectorMode.ACCOUNT_READY,
             supportTier = 1,
             activeInAustralia = true,
             supportsPod = true,
             supportsMultiPiece = true,
             trackerUrlTemplate = "https://www.ups.com/track?tracknum={trackingNumber}",
-            notes = "UPS developer APIs exist, but safe mobile use still needs user account credentials."
+            notes = "ParcelPanel tries the public UPS tracker page first and can still move to account-backed APIs later."
         ),
         CarrierDefinition(
             slug = "aramex",
             displayName = "Aramex Australia",
             initials = "AR",
-            authMode = CarrierAuthMode.USER_SUPPLIED_ACCOUNT,
+            authMode = CarrierAuthMode.PUBLIC,
             connectorMode = ConnectorMode.ACCOUNT_READY,
             supportTier = 1,
             activeInAustralia = true,
             supportsPod = true,
             supportsMultiPiece = true,
-            trackerUrlTemplate = "https://www.aramex.com/au/en/track/shipments/{trackingNumber}",
-            notes = "Good Australian coverage, with public tracking and account-driven integrations."
+            trackerUrlTemplate = "https://www.aramex.com/au/en/track/results?ShipmentNumber={trackingNumber}&source=aramex",
+            notes = "ParcelPanel uses the public Aramex tracker results page first; official SOAP APIs can still be added later for credentialed users."
         ),
         CarrierDefinition(
             slug = "couriersplease",
             displayName = "CouriersPlease",
             initials = "CP",
-            authMode = CarrierAuthMode.EXTERNAL_TRACKER_ONLY,
+            authMode = CarrierAuthMode.PUBLIC,
             connectorMode = ConnectorMode.EXTERNAL_TRACKER,
             supportTier = 2,
             activeInAustralia = true,
             supportsPod = false,
             supportsMultiPiece = false,
             trackerUrlTemplate = "https://dev.couriersplease.com.au/Tools/Track?no={trackingNumber}",
-            notes = "Consumer tracking is available; public integration docs are limited."
+            notes = "ParcelPanel attempts to scrape the public CouriersPlease tracker first."
         ),
         CarrierDefinition(
             slug = "directfreight",
@@ -152,6 +154,12 @@ data class RefreshEnvelope(
     val result: SyncResult,
     val message: String,
     val trackerUrl: String?,
+    val normalizedStatus: NormalizedStatus = NormalizedStatus.UNKNOWN,
+    val events: List<ParsedRefreshEvent> = emptyList(),
+    val serviceName: String? = null,
+    val deliveredAt: Long? = null,
+    val etaEnd: Long? = null,
+    val rawSummaryJson: String? = null,
 )
 
 interface CarrierConnector {
@@ -160,33 +168,81 @@ interface CarrierConnector {
     suspend fun refresh(request: RefreshRequest): RefreshEnvelope
 }
 
-private class ExternalTrackerConnector(
+private class ScrapingTrackerConnector(
     override val definition: CarrierDefinition,
+    private val scraper: TrackerWebScraper,
 ) : CarrierConnector {
     override suspend fun refresh(request: RefreshRequest): RefreshEnvelope {
-        val message = when (definition.connectorMode) {
-            ConnectorMode.API_READY ->
-                "Live polling is reserved for a future key-backed integration. Open the carrier tracker for the latest checkpoint."
-            ConnectorMode.ACCOUNT_READY ->
-                "This carrier typically requires account-backed auth. ParcelPanel stores your item locally and can hand off to the official tracker."
-            ConnectorMode.ENTERPRISE_CONTACT ->
-                "This carrier is catalogued, but enterprise integration remains outside the current solo-dev scope."
-            ConnectorMode.EXTERNAL_TRACKER ->
-                "ParcelPanel saved the shipment locally. Open the official tracker to fetch the latest status."
+        val trackerUrl = definition.trackingUrl(request.trackingNumber)
+            ?: return fallbackEnvelope(request, "This carrier does not expose a direct tracking page URL in the current catalog.")
+
+        return runCatching {
+            val page = scraper.fetch(trackerUrl, request.trackingNumber)
+            val parsed = TrackerTextParser.parse(definition.slug, request.trackingNumber, page)
+                ?: return@runCatching fallbackEnvelope(
+                    request = request,
+                    message = "Official tracker page loaded, but ParcelPanel could not confidently extract shipment status yet.",
+                    trackerUrl = page.finalUrl,
+                    rawSummaryText = page.bodyText,
+                )
+            val result = if (parsed.message.contains("did not find an active shipment", ignoreCase = true)) {
+                SyncResult.ERROR
+            } else {
+                SyncResult.SUCCESS
+            }
+            RefreshEnvelope(
+                result = result,
+                message = parsed.message,
+                trackerUrl = page.finalUrl,
+                normalizedStatus = if (result == SyncResult.SUCCESS) parsed.status else request.currentStatus,
+                events = parsed.events,
+                serviceName = definition.displayName,
+                deliveredAt = parsed.deliveredAt,
+                etaEnd = parsed.etaEnd,
+                rawSummaryJson = buildJsonObject {
+                    put("carrierSlug", definition.slug)
+                    put("pageTitle", page.pageTitle ?: "")
+                    put("finalUrl", page.finalUrl)
+                    put("summaryText", parsed.rawSummaryText.take(1200))
+                }.toString(),
+            )
+        }.getOrElse { throwable ->
+            fallbackEnvelope(
+                request = request,
+                message = throwable.message ?: "Official tracker lookup failed. Open the carrier tracker for the latest checkpoint.",
+                trackerUrl = trackerUrl,
+            )
         }
+    }
+
+    private fun fallbackEnvelope(
+        request: RefreshRequest,
+        message: String,
+        trackerUrl: String? = definition.trackingUrl(request.trackingNumber),
+        rawSummaryText: String? = null,
+    ): RefreshEnvelope {
         return RefreshEnvelope(
             result = SyncResult.SEE_EXTERNAL_TRACKER,
             message = message,
-            trackerUrl = definition.trackingUrl(request.trackingNumber)
+            trackerUrl = trackerUrl,
+            normalizedStatus = request.currentStatus,
+            rawSummaryJson = rawSummaryText?.let { summaryText ->
+                buildJsonObject {
+                    put("carrierSlug", definition.slug)
+                    put("summaryText", summaryText.take(1200))
+                }.toString()
+            },
         )
     }
 }
 
-class ConnectorRegistry {
+class ConnectorRegistry(
+    context: android.content.Context,
+) {
+    private val scraper = TrackerWebScraper(context)
     private val connectors = CarrierCatalog.all.associate { definition ->
-        definition.slug to ExternalTrackerConnector(definition)
+        definition.slug to ScrapingTrackerConnector(definition, scraper)
     }
 
     fun connectorFor(slug: String?): CarrierConnector? = slug?.let { connectors[it] }
 }
-

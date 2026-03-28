@@ -34,4 +34,12 @@ class CarrierDetectorTest {
         assertThat(match.slug).isEqualTo("teamge")
         assertThat(match.confidence).isAtLeast(90)
     }
+
+    @Test
+    fun elevenDigitAramexConsignmentBeatsGenericFallbacks() {
+        val match = CarrierDetector.detect("35672988035").first()
+
+        assertThat(match.slug).isEqualTo("aramex")
+        assertThat(match.confidence).isAtLeast(80)
+    }
 }

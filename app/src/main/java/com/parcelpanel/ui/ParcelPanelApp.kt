@@ -281,7 +281,7 @@ private fun InboxScreen(
         item {
             HeroPanel(
                 title = "Australian parcel tracking",
-                subtitle = "Offline-first history, sane carrier ontology, and quick hand-off to the right official tracker."
+                subtitle = "Offline-first history, sane carrier ontology, and live scraping of official tracker pages when direct APIs are not practical."
             )
         }
 
@@ -375,7 +375,7 @@ private fun AddScreen(
         item {
             HeroPanel(
                 title = "Simple by default",
-                subtitle = "Save the tracking number, keep the history local, and let ParcelPanel suggest the most likely Australian carrier."
+                subtitle = "Save the tracking number, keep the history local, and let ParcelPanel refresh against the carrier's official tracking page when possible."
             )
         }
         item {
@@ -886,7 +886,7 @@ private fun DetailScreen(
                 item {
                     EmptyStateCard(
                         title = "No live events yet",
-                        body = "This v1 build keeps the parcel locally and hands off to the official tracker when direct polling is not safe to do on-device.",
+                        body = "ParcelPanel keeps the parcel locally and now tries to scrape the official carrier tracker before falling back to direct hand-off.",
                         actionLabel = "Refresh",
                         onAction = onRefresh,
                     )

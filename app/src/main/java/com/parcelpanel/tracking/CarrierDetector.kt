@@ -26,6 +26,10 @@ object CarrierDetector {
                     add(match("dhl", 72, "10-digit format is common for DHL tracking"))
                     add(match("aramex", 55, "Also plausible for Aramex consignments"))
                 }
+                Regex("^[0-9]{11}$").matches(candidate) -> {
+                    add(match("aramex", 82, "11-digit format is common on Aramex public tracking examples"))
+                    add(match("dhl", 58, "DHL can also present shorter numeric identifiers"))
+                }
                 Regex("^[0-9]{12}$").matches(candidate) -> {
                     add(match("fedex", 82, "12-digit format is common for FedEx/TNT"))
                     add(match("aramex", 60, "Aramex can also use 12-digit consignments"))

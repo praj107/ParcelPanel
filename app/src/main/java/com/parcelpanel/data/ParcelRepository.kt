@@ -13,6 +13,7 @@ import com.parcelpanel.model.TimelineEvent
 import com.parcelpanel.tracking.CarrierCatalog
 import com.parcelpanel.tracking.CarrierDetector
 import com.parcelpanel.tracking.ConnectorRegistry
+import com.parcelpanel.tracking.ParsedRefreshEvent
 import com.parcelpanel.tracking.RefreshRequest
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -232,7 +233,7 @@ class ParcelRepository(
                     attemptNo = 1,
                     nextPollAfter = null,
                     errorCode = null,
-                    errorMessage = "Parcel added to ParcelPanel and ready for external tracking hand-off.",
+                    errorMessage = "Parcel added to ParcelPanel and ready for live tracker refresh attempts.",
                     trackerUrl = CarrierCatalog.bySlug(chosenCarrier)?.trackingUrl(cleanTrackingNumber),
                 )
             )
@@ -252,35 +253,87 @@ class ParcelRepository(
                 currentStatus = item.latestNormalizedStatus,
             )
         )
+        val effectiveStatus = if (envelope.result == SyncResult.SUCCESS) {
+            envelope.normalizedStatus
+        } else {
+            item.latestNormalizedStatus
+        }
+        val latestEventAt = envelope.events.firstOrNull { it.occurredAt != null }?.occurredAt ?: now
+        val deliveredAt = when {
+            envelope.result == SyncResult.SUCCESS && envelope.normalizedStatus == NormalizedStatus.DELIVERED ->
+                envelope.deliveredAt ?: latestEventAt
+            else -> item.deliveredAt
+        }
+        val persistedEvents = envelope.events.ifEmpty {
+            if (envelope.result == SyncResult.SUCCESS) {
+                listOf(
+                    ParsedRefreshEvent(
+                        title = effectiveStatus.label,
+                        description = envelope.message,
+                        status = effectiveStatus,
+                        occurredAt = latestEventAt,
+                    )
+                )
+            } else {
+                emptyList()
+            }
+        }
+        val snapshotId = UUID.randomUUID().toString()
 
         database.withTransaction {
             dao.markSnapshotsNotCurrent(itemId)
             dao.upsertShipmentSnapshot(
                 ShipmentSnapshotEntity(
-                    id = UUID.randomUUID().toString(),
+                    id = snapshotId,
                     trackedItemId = itemId,
                     carrierSlug = connector.definition.slug,
                     externalShipmentId = identifier.value,
-                    serviceName = connector.definition.displayName,
+                    serviceName = envelope.serviceName ?: connector.definition.displayName,
                     serviceLevel = null,
                     shipmentType = "parcel",
                     pieceCount = 1,
                     originPlaceId = null,
                     destinationPlaceId = null,
                     etaStart = null,
-                    etaEnd = null,
-                    deliveredAt = item.deliveredAt,
+                    etaEnd = envelope.etaEnd,
+                    deliveredAt = deliveredAt,
                     signedBy = null,
                     fetchedAt = now,
                     isCurrent = true,
-                    rawSummaryJson = """{"message":"${escapeJson(envelope.message)}"}""",
+                    rawSummaryJson = envelope.rawSummaryJson ?: """{"message":"${escapeJson(envelope.message)}"}""",
                 )
             )
+            if (persistedEvents.isNotEmpty()) {
+                dao.insertTrackingEvents(
+                    persistedEvents.mapIndexed { index, event ->
+                        TrackingEventEntity(
+                            id = UUID.randomUUID().toString(),
+                            snapshotId = snapshotId,
+                            pieceId = null,
+                            sequenceNo = index,
+                            occurredAt = event.occurredAt,
+                            timezone = null,
+                            carrierEventCode = null,
+                            carrierEventLabel = event.title,
+                            normalizedEventType = event.status.name.lowercase(),
+                            normalizedStatus = event.status,
+                            substatus = null,
+                            description = event.description,
+                            placeId = null,
+                            actorType = "carrier_web",
+                            isException = event.status == NormalizedStatus.EXCEPTION,
+                            rawEventJson = """{"message":"${escapeJson(event.description ?: event.title)}"}""",
+                        )
+                    }
+                )
+            }
             dao.upsertTrackedItem(
                 item.copy(
                     updatedAt = now,
                     currentCarrierSlug = connector.definition.slug,
-                    latestStatusAt = now,
+                    latestNormalizedStatus = effectiveStatus,
+                    latestStatusAt = if (envelope.result == SyncResult.SUCCESS) latestEventAt else item.latestStatusAt,
+                    deliveredAt = deliveredAt,
                 )
             )
             dao.insertSyncSession(
@@ -351,7 +404,12 @@ class ParcelRepository(
     }
 
     private fun escapeJson(value: String): String =
-        value.replace("\\", "\\\\").replace("\"", "\\\"")
+        value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
 
     private data class DetailBase(
         val item: TrackedItemEntity?,

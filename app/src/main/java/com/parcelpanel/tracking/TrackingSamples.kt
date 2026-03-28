@@ -45,7 +45,7 @@ object TrackingSamples {
         ),
         TrackingSample(
             carrierSlug = "aramex",
-            trackingNumber = "3412345678901234",
+            trackingNumber = "35672988035",
             label = "Aramex Australia",
         ),
     )

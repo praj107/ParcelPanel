@@ -18,7 +18,7 @@ class ParcelPanelApplication : Application() {
 
     val database: AppDatabase by lazy { AppDatabase.build(this) }
     val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
-    val connectorRegistry: ConnectorRegistry by lazy { ConnectorRegistry() }
+    val connectorRegistry: ConnectorRegistry by lazy { ConnectorRegistry(this) }
     val otaUpdateRepository: OtaUpdateRepository by lazy {
         OtaUpdateRepository(
             context = this,

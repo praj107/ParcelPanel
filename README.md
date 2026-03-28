@@ -1,11 +1,11 @@
-ParcelPanel is an Android only parcel-tracking app focused on Australian carriers (for now), with offline-first local history, a normalized Room schema, a simplistic classic dark themed UI,.
+ParcelPanel is an Android only parcel-tracking app focused on Australian carriers (for now), with offline-first local history, a normalized Room schema, and a dark Compose UI.
 
 ## Implemented in this repo
 
 - Kotlin + Jetpack Compose Android app scaffold
 - Room-backed parcel, event, snapshot, and sync-session schema
 - Carrier catalog and detector covering Australia Post, StarTrack, DHL, FedEx/TNT, UPS, Aramex Australia, CouriersPlease, Direct Freight Express, Team Global Express, and Toll
-- External-tracker hand-off model for carriers that are not yet safe or practical to poll directly from a mobile-only client
+- Hidden-WebView scraping of official public tracking pages when direct unauthenticated APIs are not practical on-device, with fallback to official tracker hand-off when extraction fails
 - WorkManager-based periodic refresh scheduling
 - In-app OTA update checks against the public GitHub Releases feed, with SHA-256 and signing-certificate validation before install
 - Local CI assets: `Jenkinsfile`, connected pipeline, release pipeline, bootstrap Groovy, and release/version scripts. (As a bonus)

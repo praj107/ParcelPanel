@@ -151,4 +151,9 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.truth)
     testImplementation(libs.coroutines.test)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.truth)
+    androidTestImplementation(libs.coroutines.test)
+    androidTestImplementation(libs.compose.ui.test.junit4)
 }

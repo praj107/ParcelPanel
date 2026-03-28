@@ -2,6 +2,7 @@
 .secrets/
 .gradle/
 .gradle-home/
+.kotlin/
 .idea/
 local.properties
 release-signing.properties
